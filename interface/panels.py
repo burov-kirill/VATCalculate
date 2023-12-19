@@ -33,14 +33,14 @@ def start():
             [sg.Input(key='journal'), sg.FileBrowse(button_text='Выбрать')],
             [sg.Text('Выгрузка из Диадок', font='bold')],
             [sg.Input(key='diadoc'), sg.FileBrowse(button_text='Выбрать')],
-            [sg.Text('Отчет по незакрытым авансам', font='bold')],
-            [sg.Input(key='report'), sg.FileBrowse(button_text='Выбрать')],
+            # [sg.Text('Отчет по незакрытым авансам', font='bold')],
+            # [sg.Input(key='report'), sg.FileBrowse(button_text='Выбрать')],
             [sg.Text('Папка для сохранения', font='bold')],
             [sg.Input(key='save'), sg.FolderBrowse(button_text='Выбрать')],
             [sg.Text('Имя файла', font='bold')],
-            [sg.Input(key='name', default_text=DEFAULT_FILENAME)],
+            [sg.Input(key='name', default_text=DEFAULT_FILENAME, pad=((5, 10), (5, 20)))],
             [sg.OK(button_text='Далее'), sg.Cancel(button_text='Выход')]
-        ], key='-FILE_PANEL-', visible=True, size=(420, 350))
+        ], key='-FILE_PANEL-', visible=True, size=(420, 300))
     ]
     layout = [
             [sg.Frame(layout=[UPD_FRAME], title='Обновление', key='--UPD_FRAME--')],
@@ -71,12 +71,14 @@ def start():
         edit_values = edit_values_dict(values)
         return edit_values
     else:
-        pass
-        # check_input_error = input_error_panel()
-        # if check_input_error:
-        #     return start()
+        check_input_error = input_error_panel()
+        if check_input_error:
+            return start()
 
-def check_user_values(data):
+def check_user_values(data: dict) -> bool:
+    for k, v in data.items():
+        if k in KEYS and v == '':
+            return False
     return True
 
 def edit_values_dict(values_dict: dict) -> dict:
