@@ -2,7 +2,7 @@ from cx_Freeze import setup, Executable
 executables = [Executable('main.py', base='Win32GUI',
                           target_name='VATCalculate.exe',
                           icon='ico/analysis_finance_statistics_business_graph_chart_report_icon_254045.ico')]
-includefiles = ['__VERS__.txt']
+includefiles = ['__VERS__.txt', 'templates']
 
 options = {
       'build_exe': {
