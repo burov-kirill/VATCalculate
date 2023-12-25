@@ -110,9 +110,9 @@ def decorating_excel_list(report_dict: dict, savename: str, type_report: str=Non
 def add_smart_table(wb, ws,  result: pd.DataFrame, title: str) -> None:
     log.info(f'Оформление таблицы {title}')
     global START_ROW
-    if title == 'REPORT_Перегрупировка':
+    if title in ('REPORT_Перегрупировка', 'REPORT_Все контрагенты'):
         START_ROW = 2
-        ws = wb.create_sheet('Перегрупировка')
+        ws = wb.create_sheet(title.replace('REPORT_', '').replace(' ', '_'))
     result = edit_date_columns(result)
     title = title.replace('REPORT_', '')
     ws.cell(row=START_ROW, column=START_COLUMN).value = title
@@ -146,7 +146,7 @@ def add_smart_table(wb, ws,  result: pd.DataFrame, title: str) -> None:
             wb.defined_names.add(create_defined_range(data_range, title_wout_space, 'data'))
         category_range = f'{get_column_letter(START_COLUMN)}{START_ROW + 2}:{get_column_letter(START_COLUMN)}{START_ROW + length + 1}'
         wb.defined_names.add(create_defined_range(category_range, title_wout_space, 'cat'))
-        if title == 'Перегрупировка':
+        if title in ('Перегрупировка', 'Все контрагенты'):
             width_dict = full_width_dict(dict(), result)
             for column, width in width_dict.items():
                 ws.column_dimensions[get_column_letter(column)].width = width
@@ -176,7 +176,7 @@ def full_width_dict(width_dict: dict, report: pd.DataFrame) -> dict:
 def set_max_width(report_dict: dict, ws, opt:bool=True) -> None:
     width_dict = dict()
     for title, report in report_dict.items():
-        if title != 'REPORT_Перегрупировка':
+        if title not in ('REPORT_Перегрупировка', 'REPORT_Все контрагенты'):
             width_dict = full_width_dict(width_dict, report)
     for column, width in width_dict.items():
         ws.column_dimensions[get_column_letter(column)].width = width
@@ -208,6 +208,7 @@ def add_dognut_chart(wb, ws, table_range: str, past_range: str) -> None:
     ws.add_chart(chart, past_range)
 def add_hist(wb, ws, table_range: str, past_range: str, length: int) -> None:
     log.info(f'Создание вертикальной гистограммы')
+    y_title = 'Среднее количество дней непредоставления документов'
     table_range = table_range.replace('REPORT_', '')
     data_range = '!'.join(list(wb.defined_names[f'data_avg_{table_range}'].destinations)[0])
     cat_range = '!'.join(list(wb.defined_names[f'cat_{table_range}'].destinations)[0])
@@ -222,6 +223,8 @@ def add_hist(wb, ws, table_range: str, past_range: str, length: int) -> None:
     bar_chart.dLbls.dLblPos = 'inBase'
     bar_chart.x_axis.majorGridlines = None
     bar_chart.y_axis.majorGridlines = None
+    bar_chart.y_axis.title = y_title
+    set_axis_setting(bar_chart, y_title, '499EFA', 'y', 1, 1)
     for i in range(length):
         set_data_labels_setting(bar_chart, 'FFFFFF', i, False)
     line_chart = LineChart()
@@ -369,6 +372,8 @@ def create_presentation(filename, describe_data: pd.DataFrame) -> None:
                 slide = presentation.Slides.Item(2)
                 for k, v in TXT_BOX_PARAMS.items():
                     text = describe_data[describe_data['Тип']==k]['Сумма'].iloc[0]
+                    if k == 'Количество непредоставленных документов':
+                        text = int(text)
                     text = f'{text} {v.dim}'
                     add_text_to_slide(slide, text, 1, v.left, v.top, v.width, v.height)
                 time.sleep(TIME_WAITING)

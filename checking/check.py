@@ -14,11 +14,12 @@ DATE_COL = 'Дата'
 NUMBER_COL = 'Номер'
 JOURNAL_COLUMNS = ['ИНН', 'Номер', 'Дата', 'Сумма']
 DIADOC_COLUMNS = ['ИНН', 'Номер документа', 'Дата документа', 'Всего']
+RES_COLUMNS = ['ИНН', 'Номер', 'Дата', 'Сумма', 'Номер документа', 'Дата документа', 'Всего', 'Ссылка']
 TITLE_TABLES = ['Проверка на наличие дублей', 'Ошибки в датах', 'Некорректные номера документов', 'Проверка дубликатов по столбцу Документ Основание']
-COMPARING_TITLE = 'Сверка данных из журнала и Диадок'
+COMPARING_TITLE = 'Запросы на аннулирование'
 COLUMNS_FOR_GROUPS = ['Субподрядчик_ext','Сумма НДС', 'Сумма незакрытого аванса']
-COLUMNS_FOR_REGROUPS = ['Проект', 'Контрагент', 'Документ', 'Вх. номер', 'Вх. дата', 'Сумма']
-TITLE_TABLES_FOR_REPORT = ['REPORT_Сумма НДС', 'REPORT_ТОП10', 'REPORT_Анализ', 'REPORT_Средняя разница', 'REPORT_Перегрупировка']
+COLUMNS_FOR_REGROUPS = ['Проект', 'Контрагент', 'Документ', 'Вх. номер', 'Вх. дата', 'Субподрядчик', 'Договор субподрядчика', 'Договор',  'Сумма']
+TITLE_TABLES_FOR_REPORT = ['REPORT_Сумма НДС', 'REPORT_ТОП10', 'REPORT_Анализ', 'REPORT_Средняя разница', 'REPORT_Перегрупировка', 'REPORT_Все контрагенты']
 FACTURE_COLUMN = 'СФ'
 VAT_COLUMN = 'Сумма НДС'
 def duplicate_check(frame:pd.DataFrame) -> pd.DataFrame:
@@ -59,7 +60,7 @@ def describe_table(frame: pd.DataFrame) -> pd.DataFrame:
     VAT = sum(frame[pd.isna(frame[FACTURE_COLUMN])][VAT_COLUMN])
     ADVANCE = sum(frame[pd.isna(frame[FACTURE_COLUMN])]['Сумма незакрытого аванса'])
     COUNT = len(frame[pd.isna(frame[FACTURE_COLUMN])])
-    ALL_ADVANCE = sum(frame['Сумма незакрытого аванса'])
+    ALL_ADVANCE = sum(frame['Сумма незакрытого аванса'])*20/120
     f_row = {'Тип': 'Сумма незакрытого аванса', 'Сумма': round(ADVANCE/1_000_000_000, 1)}
     s_row = {'Тип': 'Сумма НДС с незакрытого аванса', 'Сумма': round(VAT / 1_000_000, 1)}
     t_row = {'Тип': 'Количество непредоставленных документов', 'Сумма': COUNT}
@@ -69,11 +70,15 @@ def describe_table(frame: pd.DataFrame) -> pd.DataFrame:
 def get_only_n_values(frame: pd.DataFrame,  n: int=10) -> pd.DataFrame:
     log.info('Создание таблицы ТОП 10')
     frame = add_column(frame, 'Субподрядчик_ext', 'Субподрядчик', '(.*)\(\d*\/\d*\)')
-    frame = get_grouped_data(frame).iloc[:n, :]
+    if n == 10:
+        frame = get_grouped_data(frame).iloc[:n, :]
+    else:
+        frame = get_grouped_data(frame)
     for col in COLUMNS_FOR_GROUPS[1:]:
         frame[col] = frame[col].astype(float)
         frame[col] = np.around(frame[col]/1_000_000,1)
-    frame.sort_values(by=COLUMNS_FOR_GROUPS[1], ascending=True, inplace=True)
+    if n == 10:
+        frame.sort_values(by=COLUMNS_FOR_GROUPS[1], ascending=True, inplace=True)
     return frame
 
 def regroup_data(frame: pd.DataFrame) -> pd.DataFrame:
@@ -95,9 +100,8 @@ def add_column(frame: pd.DataFrame, new_col, old_col, pattern) -> pd.DataFrame:
 def compare_tables(journal: pd.DataFrame, diadoc: pd.DataFrame) -> pd.DataFrame:
     log.info('Сверки данных журнала и диадок')
     journal = add_column(journal, 'ИНН', 'Контрагент', '\((\d+)\/\d+\)')
-    journal = journal[JOURNAL_COLUMNS]
-    diadoc = diadoc[DIADOC_COLUMNS]
     compare_result = pd.merge(journal, diadoc, left_on=JOURNAL_COLUMNS, right_on=DIADOC_COLUMNS)
+    compare_result = compare_result[RES_COLUMNS]
     return compare_result
 
 def calc_date_diff(dt: datetime.datetime, current_date: datetime.datetime) -> int:
@@ -127,10 +131,12 @@ def create_all_report(journal_path: str=None, diadoc_path: str=None, report_path
         frame_dict[COMPARING_TITLE] = compare_tables(journal, diadoc)
     if opt in ('only_advances', 'all'):
         report = read_report(report_path)
-        FUNCTION_LIST = [describe_table, get_only_n_values, structure_analysis_table, get_avg_date, regroup_data]
+        FUNCTION_LIST = [describe_table, get_only_n_values, structure_analysis_table, get_avg_date, regroup_data, get_only_n_values]
         for key, func in zip(TITLE_TABLES_FOR_REPORT, FUNCTION_LIST):
-            if key != 'REPORT_Средняя разница':
+            if key != 'REPORT_Средняя разница' and key!='REPORT_Все контрагенты':
                 frame_dict[key] = func(report)
+            elif key == 'REPORT_Все контрагенты':
+                frame_dict[key] = func(report, 1)
             else:
                 frame_dict[key] = func(report, curr_dt)
     return frame_dict
