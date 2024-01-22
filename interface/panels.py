@@ -115,7 +115,7 @@ def start():
             [sg.pin(sg.Column(
             [[sg.Text('Имя файла отчета НДС', font='bold')],
                  [sg.Input(key='adv_name', default_text='Отчет')]], key='report_name', visible=False))]
-        ], key='-FILE_PANEL-', visible=True, size=(420, 650))
+        ], key='-FILE_PANEL-', visible=True, size=(420, 550))
     ]
     layout = [
             [sg.Frame(layout=[UPD_FRAME], title='Обновление', key='--UPD_FRAME--')],
