@@ -1,5 +1,7 @@
 import datetime
+import itertools
 import re
+from collections import Counter
 
 import numpy as np
 import pandas as pd
@@ -22,6 +24,20 @@ COLUMNS_FOR_REGROUPS = ['Проект', 'Контрагент', 'Докумен�
 TITLE_TABLES_FOR_REPORT = ['REPORT_Сумма НДС', 'REPORT_ТОП10', 'REPORT_Анализ', 'REPORT_Средняя разница', 'REPORT_Перегрупировка', 'REPORT_Все контрагенты']
 FACTURE_COLUMN = 'СФ'
 VAT_COLUMN = 'Сумма НДС'
+INSPECTIONS_DICT = {
+        'Камеральная, Встречная': 'Камеральная, по поручению',
+        'Камеральная': 'Камеральная, прямая',
+        'Вне рамок проверок, Встречная': 'Вне рамок проверок, прямое',
+        'Выездная, Встречная': 'Выездная, по поручению',
+        'Вне рамок проверок': 'Вне рамок проверок, прямое',
+        'Встречная': 'Прочее',
+        'Выездная': 'Выездная, по поручению',
+        'Вне рамок проверок, Камеральная': 'Вне рамок проверок, прямое',
+        'Камеральная, Вне рамок проверок': 'Камеральная, прямая',
+        'Выездная, прямая': 'Прочее'
+
+}
+
 def duplicate_check(frame:pd.DataFrame) -> pd.DataFrame:
     log.info('Вызов функкции обнаружения дубликатов')
     return frame[frame.duplicated(COLUMNS)]
@@ -141,3 +157,194 @@ def create_all_report(journal_path: str=None, diadoc_path: str=None, report_path
                 frame_dict[key] = func(report, curr_dt)
     return frame_dict
 
+def get_quarter(month: int) -> int:
+    if month in (1, 2, 3):
+        return 1
+    elif month in (4, 5, 6):
+        return 2
+    elif month in (7, 8, 9):
+        return 3
+    else:
+        return 4
+def get_quarter_from_string(string: str) -> str:
+    dt = datetime.datetime.strptime(string, '%d.%m.%y')
+    if dt.year>=2021:
+        year = str(dt.year)[2:]
+        quarter = get_quarter(dt.month)
+        return f'{quarter}кв{year}г.'
+    else:
+        return f'{dt.year}г.'
+
+def get_year_from_string(string: str) -> int:
+    dt = datetime.datetime.strptime(string, '%d.%m.%y')
+    return dt.year
+def get_quarter_report(frame: pd.DataFrame, current_year: int) -> pd.DataFrame:
+    skip_years = ['2014г.', '2015г.', '2016г.']
+    frame['Квартал'] = frame['Дата получения'].apply(get_quarter_from_string)
+    frame = frame[~frame['Квартал'].isin(skip_years)]
+    quarter_frame = frame[['Квартал']].value_counts().to_frame()
+    quarter_frame.reset_index(inplace=True)
+    quarter_frame.columns = ['Квартал', 'Количество документов от ИФНС']
+    quarter_frame.sort_values(by='Квартал', inplace=True, key=lambda col: col.map(lambda x: (x[-4:-2], x[0])))
+    return quarter_frame
+
+def rename_docs(doc: str) -> str:
+    new_docs = {'Требование о представлении документов (информации)': 'Требование о представлении документов',
+                'Требование о представлении пояснений': 'Требование о представлении пояснений',
+                'Уведомление о вызове налогоплательщика (плательщика сбора, налогового агента)': 'Уведомление о вызове налогоплательщика',
+                'Решение об отмене приостановления операций по счетам налогоплательщика': 'Решение об отмене приостановления операций по счетам',
+                'Решение о привлечении лица к ответственности за налоговое правонарушение,'
+                ' предусмотренное Налоговым кодексом Российской Федерации (за исключением'
+                ' налогового правонарушения, дело о выявлении которого рассматривается'
+                ' в порядке, установленном статьей 101 Налогового кодекса Российской Федерации': 'Решение о привлечении лица к ответственности за налоговое правонарушение'}
+    return new_docs[doc]
+def get_type_doc_report(frame: pd.DataFrame, current_year: int) -> pd.DataFrame:
+    docs = ['Требование о представлении документов (информации)', 'Требование о представлении пояснений',
+            'Уведомление о вызове налогоплательщика (плательщика сбора, налогового агента)', 'Решение об отмене приостановления операций по счетам налогоплательщика',
+            'Решение о привлечении лица к ответственности за налоговое правонарушение, предусмотренное Налоговым кодексом Российской Федерации (за исключением налогового правонарушения, дело о выявлении которого рассматривается в порядке, установленном статьей 101 Налогового кодекса Российской Федерации']
+    frame['Год'] = frame['Дата получения'].apply(get_year_from_string)
+    current_year_frame = frame[frame['Год'] == current_year]
+    current_year_frame = current_year_frame[['Вид документа']]
+    current_year_frame = current_year_frame[current_year_frame['Вид документа'].isin(docs)]
+    res = current_year_frame.value_counts().to_frame()
+    res.reset_index(inplace=True)
+    res.columns = ['Вид документа', 'Количество документов от ИФНС']
+    res['Вид документа'] = res['Вид документа'].apply(rename_docs)
+    return res
+def get_percent(cnt_doc:int, common_sum: int) -> float:
+    return round(cnt_doc/common_sum, 2)
+def get_type_org_report(frame: pd.DataFrame, current_year: int) -> pd.DataFrame:
+    frame['Год'] = frame['Дата получения'].apply(get_year_from_string)
+    current_year_frame = frame[(frame['Год'] == current_year) & (frame['Организация'] != 'Не удалось определить название организации')]
+    current_year_frame['Организация'] = current_year_frame['Организация'].apply(str.strip)
+    current_year_frame = current_year_frame[['Организация']]
+    res = current_year_frame.value_counts().to_frame()
+    res.reset_index(inplace=True)
+    res.columns = ['Наименование подрядчика', 'Количество, шт.']
+    common_sum = res['Количество, шт.'].sum()
+    res['Количество, шт.'] = res['Количество, шт.'].apply(get_percent, args=[common_sum])
+    return res
+
+def rename_taxes(tax: str) -> str:
+    if tax == 'НДС':
+        return tax
+    else:
+        return 'ННП'
+def get_check_declaration_report(frame: pd.DataFrame, current_year: int) -> pd.DataFrame:
+    taxes = ['НДС', 'Прибыль']
+    frame['Год'] = frame['Дата получения'].apply(get_year_from_string)
+    current_year_frame = frame[(frame['Вид проверки'].str.contains('Камеральная')) & (frame['Вид налога'].isin(taxes)) & (frame['Год'] == current_year)]
+    current_year_frame = current_year_frame[['Вид налога']]
+    current_year_frame['Вид налога'] = current_year_frame['Вид налога'].apply(rename_taxes)
+    res = current_year_frame.value_counts().to_frame()
+    res.reset_index(inplace=True)
+    res.columns = ['Вид налога', 'Количество']
+    common_sum = res['Количество'].sum()
+    res['Количество'] = res['Количество'].apply(get_percent, args=[common_sum])
+    return res
+
+def get_type_inspection(insp: str) -> str:
+    type_insp = INSPECTIONS_DICT.get(insp, 'Пусто')
+    return type_insp
+def get_inspection_report(frame: pd.DataFrame, current_year: int) -> pd.DataFrame:
+    frame['Год'] = frame['Дата получения'].apply(get_year_from_string)
+    frame['Тип'] = frame['Вид проверки'].apply(get_type_inspection)
+    current_year_frame = frame[(frame['Год'] == current_year) & (frame['Тип'] != 'Пусто')]
+    current_year_frame = current_year_frame[['Тип']]
+    res = current_year_frame.value_counts().to_frame()
+    res.reset_index(inplace=True)
+    res.columns = ['Вид налоговой проверки', 'Количество, шт.']
+    return res
+
+def get_analysis_report(frame: pd.DataFrame, current_year: int) -> pd.DataFrame:
+    frame['Год'] = frame['Дата получения'].apply(get_year_from_string)
+    years = [current_year - 2, current_year - 1, current_year]
+    frame = frame[(frame['Год'].isin(years)) & (~frame['ИНН контрагентов'].isna())]
+    lst = []
+    for year in years:
+        cnt_doc = frame[frame['Год'] == year]['Вид документа'].count()
+        cnt_org = get_count_identifier(frame[frame['Год'] == year]['ИНН контрагентов'].values)
+        d = {'Год': year, 'Количество требований': cnt_doc, 'Количество подрядчиков': cnt_org}
+        lst.append(d)
+    res = pd.DataFrame(lst)
+    return res
+
+def get_count_identifier(ident_arr) -> int:
+    ident_arr = list(map(lambda x: x.split(', ') if len(x.split(', ')) == 1 or len(x.split(', ')) >= 5 else [x.split(', ')[0]], ident_arr))
+    flat_list = list(itertools.chain(*ident_arr))
+    return len(set(flat_list))
+
+def date_row_filter(row, column) -> bool:
+    dt = row[column]
+    try:
+        dt = datetime.datetime.strptime(dt, '%d.%m.%y')
+    except:
+        return False
+    else:
+        return True
+def plan_fact_report(frame: pd.DataFrame, current_year: int) -> pd.DataFrame:
+    docs = ['Требование о представлении документов (информации)', 'Требование о представлении пояснений']
+    frame['Год'] = frame['Дата получения'].apply(get_year_from_string)
+    current_year_frame = frame[frame['Год'] == current_year]
+    current_year_frame.columns = list(map(lambda x: x.replace('\n', ''), current_year_frame.columns))
+    fact = current_year_frame.apply(date_row_filter, axis=1, args=['Квитанция:факт'])
+    plan = current_year_frame.apply(date_row_filter, axis=1, args=['Квитанция:план'])
+    res = fact & plan
+    depart_frame = current_year_frame[res]
+    depart_frame['Квитанция:факт'] = depart_frame['Квитанция:факт'].apply(lambda x: datetime.datetime.strptime(x, '%d.%m.%y'))
+    depart_frame['Квитанция:план'] = depart_frame['Квитанция:план'].apply(lambda x: datetime.datetime.strptime(x, '%d.%m.%y'))
+    depart_frame['Depart'] = depart_frame['Квитанция:факт'] <= depart_frame['Квитанция:план']
+    depart = depart_frame[depart_frame['Depart'] == True]['Depart'].count()/len(depart_frame)
+
+    fact = current_year_frame.apply(date_row_filter, axis=1, args=['Ответ:факт'])
+    plan = current_year_frame.apply(date_row_filter, axis=1, args=['Ответ:план'])
+    res = fact & plan
+    response_frame = current_year_frame[res]
+    response_frame['Ответ:факт'] = response_frame['Ответ:факт'].apply(lambda x: datetime.datetime.strptime(x, '%d.%m.%y'))
+    response_frame['Ответ:план'] = response_frame['Ответ:план'].apply(lambda x: datetime.datetime.strptime(x, '%d.%m.%y'))
+    response_frame['Response'] = response_frame['Ответ:факт'] <= response_frame['Ответ:план']
+    response = response_frame[(response_frame['Response'] == True) & (response_frame['Вид документа'].isin(docs))]['Response'].count() / len(response_frame)
+
+    delay = len(response_frame[(response_frame['Response'] == False) & (response_frame['Вид документа'].isin(docs))])
+    fine = delay*5000
+
+    row1 = {'Тип': 'Доля квитанций отправленных вовремя', 'Сумма': int(round(depart, 2)*100)}
+    row2 = {'Тип': 'Доля ответов на Требования, отправленных вовремя', 'Сумма': int(round(response, 2)*100)}
+    row3 = {'Тип': 'Количество требований, отправленных позже срока', 'Сумма': delay}
+    row4 = {'Тип': 'Прогноз начисления штрафа', 'Сумма': round(fine, 1)}
+
+    res = pd.DataFrame([row1, row2, row3, row4])
+    return res
+
+def agents_report(frame: pd.DataFrame, year: int) -> pd.DataFrame:
+    frame['Год'] = frame['Дата получения'].apply(get_year_from_string)
+    frame = frame[(frame['Год'] == year) & (~frame['ИНН контрагентов'].isna())]
+    ident_arr = list(map(lambda x: x.split(', ') if len(x.split(', '))>=5 else [x.split(', ')[0]], frame[frame['Год'] == year]['ИНН контрагентов'].values))
+    cnt_dict = Counter(list(itertools.chain(*ident_arr)))
+    res_lst = list()
+    for i, (ident, cnt) in enumerate(sorted(cnt_dict.items(), key=lambda x: x[1], reverse=True)):
+        if i == 10:
+            break
+        else:
+            res_lst.append({'Наименование подрядчика': ident, 'Количество, шт.': cnt})
+    res = pd.DataFrame(res_lst)
+    res.sort_values(by=['Количество, шт.'], inplace=True)
+    return res
+
+def create_report_dict(frame: pd.DataFrame, year: int) -> dict:
+    TITLE_DICT = {
+        'Информативный блок': plan_fact_report,
+        'Поквартальный анализ полученных документов': get_quarter_report,
+        'Анализ в разрезе видов документов': get_type_doc_report,
+        'Анализ по виду организаций': get_type_org_report,
+        'Анализ по виду налога': get_check_declaration_report,
+        'Анализ по виду проверки': get_inspection_report,
+        'Основные подрядчики': agents_report,
+        'Анализ требований': get_analysis_report,
+
+    }
+    RESULT_DICT = dict()
+    for title, func in TITLE_DICT.items():
+        res = func(frame, year)
+        RESULT_DICT[title] = res
+    return RESULT_DICT

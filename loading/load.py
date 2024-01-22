@@ -22,17 +22,21 @@ def date_to_str(dt):
 def get_encoding(filename: str) -> str:
     enc = chardet.detect(open(filename, 'rb').read())
     return enc['encoding']
-
-def read_file(filename, is_csv=False):
+def read_data(filename, is_csv=False):
     sep = ';'
     if not is_csv:
-        log.info('Считывание данных журнала с/ф')
         df = pd.read_excel(filename)
+    else:
+        encode = get_encoding(filename)
+        df = pd.read_csv(filename, sep=sep, encoding=encode)
+    return df
+def read_file(filename, is_csv=False):
+    df = read_data(filename, is_csv)
+    if not is_csv:
+        log.info('Считывание данных журнала с/ф')
         df[['Получен', 'Дата']] = df[['Получен', 'Дата']].apply(pd.to_datetime, format='%d.%m.%Y')
     else:
         log.info('Считывание данных файла диадок')
-        encode = get_encoding(filename)
-        df = pd.read_csv(filename, sep=sep, encoding=encode)
         df['Дата документа'] = df['Дата документа'].apply(pd.to_datetime, format='%d.%m.%Y')
         for column in ['ИНН', 'Номер документа']:
             df[column] = df[column].apply(lambda x: str(x).replace('=', '').replace('"', ''))

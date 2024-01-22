@@ -29,12 +29,22 @@ KEYS_DICT = {
     'diadoc': 'Выгрузка из Диадок',
     'save': 'Папка для сохранения',
     'errors_name': 'Имя файла отчета по ошибкам',
-    'report_name': 'Имя файла отчета НДС'
+    'report_name': 'Имя файла отчета НДС',
+    'doc_report': 'Имя файла отчета по документам ФНС'
 }
 DEFAULT_FILENAME = 'Результат'
 sg.theme('SamoletTheme')
+SLCT_LIST = ['Отчет по НДС', 'Отчет по документам ФНС']
+def date(year, month=1, day=1):
+    return datetime.date(year, month=month, day=day)
+
+def get_years(start, stop):
+    return list(range(start.year, stop.year+1))
 def start():
     y, m, d = datetime.datetime.now().year, datetime.datetime.now().month, datetime.datetime.now().day-1
+    start = date(datetime.datetime.now().year-10)
+    stop = date(datetime.datetime.now().year+10)
+    dates = get_years(start, stop)
     str_now_dt = datetime.datetime.now().strftime('%d.%m.%Y')
     UPD_FRAME = [sg.Column([[sg.Button('Проверка', key='check_upd'), sg.Text('Нет обновлений', key='not_upd_txt'),
                   sg.Push(),
@@ -43,7 +53,38 @@ def start():
                   sg.pin(sg.Button('Обновить', key='upd_btn', visible=False))],
                  ],
                            size=(420, 50))]
-    MAIN_PANEL = [
+    SELECT_PANEL = [
+        sg.Column(
+            [
+                [sg.Combo(SLCT_LIST,default_value=SLCT_LIST[0],key='SLCT_OPT', size=(42, 15), enable_events=True)],
+            ],
+            size=(420, 50)
+        )
+    ]
+    DOC_PANEL = [
+        sg.Column(
+            [
+                [sg.Text('Год', font='bold'),
+                 sg.Combo(dates, font=("Helvetica", 10), enable_events=True, key='year', default_value=datetime.datetime.now().year)],
+                [sg.Text('Отчет по документам ФНС', font='bold')],
+                [sg.Input(key='doc_report'), sg.FileBrowse(button_text='Выбрать')],
+                [sg.Text('Папка для сохранения', font='bold')],
+                [sg.Input(key='save_pres'), sg.FolderBrowse(button_text='Выбрать')],
+                [sg.Text('Имя презентации', font='bold')],
+                [sg.Input(key='pres_name', default_text='Отчет')]
+            ]
+        )
+    ]
+
+    BUTTON_PANEL = [
+        sg.Column(
+            [
+                [sg.OK(button_text='Далее'), sg.Cancel(button_text='Выход')]
+            ]
+        )
+    ]
+    VAT_PANEL = [
+
         sg.Column([
             [sg.Radio(text='Только ошибки', default=True, group_id='how_do', key='only_errors', enable_events=True),
              sg.Radio(text='Только НДС', default=False, group_id='how_do', key='only_advances', enable_events=True),
@@ -73,13 +114,24 @@ def start():
             [sg.Input(key='err_name', default_text=DEFAULT_FILENAME)]], key='errors_name'))],
             [sg.pin(sg.Column(
             [[sg.Text('Имя файла отчета НДС', font='bold')],
-                 [sg.Input(key='adv_name', default_text='Отчет')]], key='report_name', visible=False))],
-            [sg.OK(button_text='Далее'), sg.Cancel(button_text='Выход')]
+                 [sg.Input(key='adv_name', default_text='Отчет')]], key='report_name', visible=False))]
         ], key='-FILE_PANEL-', visible=True, size=(420, 650))
     ]
     layout = [
             [sg.Frame(layout=[UPD_FRAME], title='Обновление', key='--UPD_FRAME--')],
-            [sg.Frame(layout=[MAIN_PANEL], title='Выбор файлов')]]
+            [sg.Frame(layout=[SELECT_PANEL], title='Выбор режима', key='--SLCT_FRAME--')],
+            [sg.pin(sg.Column(
+                [
+                    [sg.Frame(layout=[VAT_PANEL], title='Выбор файлов')]
+                ],
+            key='--VAT_FRAME--'))],
+            [sg.pin(sg.Column(
+                [
+                    [sg.Frame(layout=[DOC_PANEL], title='Выбор файлов')]
+                ],
+            key='--DOC_FRAME--', visible=False))],
+            BUTTON_PANEL
+    ]
     yeet = sg.Window('Сверка данных файлов', layout=layout)
     check, upd_check = False, True
     while True:
@@ -124,6 +176,14 @@ def start():
             yeet['errors_col'].Update(visible=True)
             yeet.refresh()
             yeet['-FILE_PANEL-'].contents_changed()
+        if event == 'SLCT_OPT':
+            if values['SLCT_OPT'] == 'Отчет по документам ФНС':
+                yeet['--VAT_FRAME--'].Update(visible=False)
+                yeet['--DOC_FRAME--'].Update(visible=True)
+            else:
+                yeet['--VAT_FRAME--'].Update(visible=True)
+                yeet['--DOC_FRAME--'].Update(visible=False)
+            yeet.refresh()
     yeet.close()
     check_report, values = check_user_values(data=values)
     if check_report:
@@ -135,23 +195,23 @@ def start():
             return start()
 
 def check_user_values(data: dict) -> tuple:
-    for ipt_type in CHECK_DICT.keys():
-        if data[ipt_type] == True:
-            data['type'] = ipt_type
-            for k, v in data.items():
-                if k in CHECK_DICT[ipt_type]:
-                    if v == '':
-                        return False, k
-            break
-    data['curr_dt'] = parse_data(data['curr_dt'])
-    return True, data
+    if data['SLCT_OPT'] != 'Отчет по документам ФНС':
+        for ipt_type in CHECK_DICT.keys():
+            if data[ipt_type] == True:
+                data['type'] = ipt_type
+                for k, v in data.items():
+                    if k in CHECK_DICT[ipt_type]:
+                        if v == '':
+                            return False, k
+                break
+        data['curr_dt'] = parse_data(data['curr_dt'])
+        return True, data
+    else:
+        if data['doc_report'] != '':
+            return True, data
+        else:
+            return False, 'doc_report'
 
-# def edit_values_dict(values_dict: dict) -> dict:
-#     result_dict = dict()
-#     for k, v in values_dict.items():
-#         if k in KEYS and v != '':
-#             result_dict[k] = v
-#     return result_dict
 
 def input_error_panel(key):
     event = sg.popup(f'''При вводе данных возникла ошибка
